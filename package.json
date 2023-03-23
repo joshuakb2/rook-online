@@ -1,0 +1,26 @@
+{
+  "name": "rook-online",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "./build.mjs",
+    "watch": "WATCH=true ./build.mjs"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@trpc/client": "^10.17.0",
+    "@trpc/server": "^10.17.0",
+    "@types/node": "^18.15.5",
+    "@types/ws": "^8.5.4",
+    "browserslist": "^4.21.5",
+    "esbuild": "^0.17.12",
+    "esbuild-plugin-browserslist": "^0.7.0",
+    "tiny-typed-emitter": "^2.1.0",
+    "typescript": "^5.0.2",
+    "ws": "^8.13.0",
+    "zod": "^3.21.4"
+  }
+}
