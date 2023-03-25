@@ -3,7 +3,7 @@ import { applyWSSHandler, CreateWSSContextFnOptions } from '@trpc/server/adapter
 import * as ws from 'ws';
 import { z } from 'zod';
 import { cardParser, colorParser, PlayerName, playerNameParser, seatParser } from '../common/parsers';
-import { Game, onMessageFromClient, emitter as gameEmitter } from './game';
+import { Game, onMessageFromClient, emitter as gameEmitter, getGame } from './game';
 import { observable } from '@trpc/server/observable';
 
 const createContext = async (opts: CreateWSSContextFnOptions) => {
@@ -112,6 +112,7 @@ const appRouter = router({
         .subscription(req => {
             return observable<Game>(emit => {
                 gameEmitter.on('updated', emit.next);
+                emit.next(getGame());
                 req.ctx.on('close', () => gameEmitter.off('updated', emit.next));
                 return () => gameEmitter.off('updated', emit.next);
             });

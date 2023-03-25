@@ -4,6 +4,7 @@ import { build } from 'esbuild';
 import browserslist from 'browserslist';
 import { resolveToEsbuildTarget } from 'esbuild-plugin-browserslist';
 import { mkdirSync } from 'fs';
+import { replace } from 'esbuild-plugin-replace';
 
 const production = !!process.env.production;
 
@@ -49,6 +50,11 @@ build({
     target: resolveToEsbuildTarget(browserslist('> 0.5%, last 2 versions, not dead'), {
         printUnknownTargets: false,
     }),
+    plugins: [
+      replace({
+        'process.env.NODE_ENV': JSON.stringify(production ? 'production' : 'development'),
+      })
+    ]
 }).then(ctx => process.env.WATCH !== 'true' ? null : ctx.watch({
   onRebuild(error, result) {
     if (error) {

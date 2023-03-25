@@ -1,6 +1,6 @@
 import { TypedEmitter } from 'tiny-typed-emitter';
 import { Card, Color, PlayerName, Seat } from '../common/parsers';
-import { assertNever } from '../common/utils';
+import { assertNever, sleep } from '../common/utils';
 import { cardsEqual } from '../common/domain';
 import '../common/declarations';
 
@@ -60,6 +60,7 @@ type TricksPhase = {
     cards: Cards;
     trumps: Color;
     nest: Card[];
+    rook: Seat | 'nest';
     bid: number;
     wonBid: Seat;
     leader: Seat;
@@ -73,6 +74,7 @@ type DonePhase = {
     phase: 'done';
     bid: number;
     wonBid: Seat;
+    rook: Seat | 'nest';
     points: Record<Seat, number>;
     lastTrick: AllPlayed;
     north_south_delta: number;
@@ -142,6 +144,29 @@ const seatOf = (player: PlayerName): Seat => {
     }
 
     throw new Error(`Player ${player} is not seated.`);
+};
+
+const seatOppositeOf = (seat: Seat): Seat => {
+    switch (seat) {
+        case 'north': return 'south';
+        case 'south': return 'north';
+        case 'east': return 'west';
+        case 'west': return 'east';
+        default: return assertNever(seat);
+    }
+};
+
+const teamOf = (seat: Seat) => {
+    switch (seat) {
+        case 'north':
+        case 'south':
+            return 'north_south';
+        case 'east':
+        case 'west':
+            return 'east_west';
+        default:
+            return assertNever(seat);
+    }
 };
 
 const everyonePassed = (bids: Bids, dealer: Seat): boolean => {
@@ -267,73 +292,116 @@ const handIsOver = (cardsBySeat: Cards): boolean => {
 const checkTrick = (phase: TricksPhase) => {
     if (!allPlayed(phase.played)) return;
 
-    const leadColor = colorOf(phase.played[phase.leader], phase.trumps);
-    let winner: Seat | null = null;
-    let winningCard: Card | null = null;
+    const played = phase.played;
 
-    for (const [seat, card] of Object.entries(phase.played)) {
-        if (beats(winningCard, card, leadColor, phase.trumps)) {
-            winner = seat;
-            winningCard = card;
-        }
-    }
+    delayed(async () => {
+        await sleep(3000);
 
-    if (!winner) throw new Error('Somehow, there is no winner of the trick?');
+        const leadColor = colorOf(played[phase.leader], phase.trumps);
+        let _winner: Seat | null = null;
+        let winningCard: Card | null = null;
 
-    phase.points[winner] += pointsInTrick(phase.played);
-    phase.previousTrick = phase.played;
-    phase.played = {
-        north: null,
-        south: null,
-        east: null,
-        west: null,
-    };
-
-    if (handIsOver(phase.cards)) {
-        for (const card of phase.nest) {
-            phase.points[winner] += pointValueOf(card);
-        }
-
-        const north_south_total = phase.points.north + phase.points.south;
-        const east_west_total = phase.points.east + phase.points.west;
-
-        let north_south_delta: number;
-        let east_west_delta: number;
-
-        if (phase.wonBid === 'north' || phase.wonBid === 'south') {
-            if (north_south_total >= phase.bid) {
-                north_south_delta = north_south_total;
+        for (const [seat, card] of Object.entries(played)) {
+            if (beats(winningCard, card, leadColor, phase.trumps)) {
+                _winner = seat;
+                winningCard = card;
             }
-            else {
-                north_south_delta = -phase.bid;
-            }
-            east_west_delta = east_west_total;
         }
-        else {
-            if (east_west_total >= phase.bid) {
+
+        const winner = _winner;
+
+        if (!winner) throw new Error('Somehow, there is no winner of the trick?');
+
+        phase.points[winner] += pointsInTrick(played);
+        const maybeLastTrick = phase.previousTrick = played;
+        phase.played = {
+            north: null,
+            south: null,
+            east: null,
+            west: null,
+        };
+
+        onGameChanged();
+
+        if (handIsOver(phase.cards)) {
+            await sleep(5000);
+
+            for (const card of phase.nest) {
+                phase.points[winner] += pointValueOf(card);
+            }
+
+            const north_south_total = phase.points.north + phase.points.south;
+            const east_west_total = phase.points.east + phase.points.west;
+
+            let north_south_delta: number;
+            let east_west_delta: number;
+
+            if (phase.wonBid === 'north' || phase.wonBid === 'south') {
+                if (north_south_total >= phase.bid) {
+                    north_south_delta = north_south_total;
+                }
+                else {
+                    north_south_delta = -phase.bid;
+                }
                 east_west_delta = east_west_total;
             }
             else {
-                east_west_delta = -phase.bid;
+                if (east_west_total >= phase.bid) {
+                    east_west_delta = east_west_total;
+                }
+                else {
+                    east_west_delta = -phase.bid;
+                }
+                north_south_delta = north_south_total;
             }
-            north_south_delta = north_south_total;
+
+            game.north_south_deltas.push(north_south_delta);
+            game.east_west_deltas.push(east_west_delta);
+            game.north_south_score += north_south_delta;
+            game.east_west_score += east_west_delta;
+
+            game.phase = {
+                phase: 'done',
+                bid: phase.bid,
+                wonBid: phase.wonBid,
+                rook: phase.rook,
+                lastTrick: maybeLastTrick,
+                points: phase.points,
+                north_south_delta,
+                east_west_delta,
+            };
+
+            console.log(
+                'Game complete!',
+                'Josh was playing with',
+                game.seats[seatOppositeOf(seatOf('josh'))],
+            );
+            console.log(
+                'The dealer was',
+                game.dealer,
+                'and the bid went to',
+                game.seats[game.phase.wonBid],
+                'for',
+                game.phase.bid
+            );
+            console.log(
+                'Josh\'s team scored',
+                game.phase[`${teamOf(seatOf('josh'))}_delta`],
+                'and the other team scored',
+                game.phase[`${teamOf(nextSeat(seatOf('josh')))}_delta`],
+            );
+            if (game.phase.rook === 'nest') {
+                console.log('Something unprecedented has happened. The rook was put in the nest!?!?!?');
+            }
+            else {
+                console.log(game.seats[game.phase.rook], 'had the rook.');
+            }
+
+            onGameChanged();
+
+            await sleep(5000);
         }
-
-        game.north_south_deltas.push(north_south_delta);
-        game.east_west_deltas.push(east_west_delta);
-        game.north_south_score += north_south_delta;
-        game.east_west_score += east_west_delta;
-
-        game.phase = {
-            phase: 'done',
-            bid: phase.bid,
-            wonBid: phase.wonBid,
-            lastTrick: phase.previousTrick,
-            points: phase.points,
-            north_south_delta,
-            east_west_delta,
-        };
-    }
+    });
 };
 
 const shuffle = <T>(arr: T[]): void => {
@@ -390,7 +458,7 @@ const delayed = (f: () => Promise<void>): void => {
 
     function onFinally() {
         game.busy = false;
-        emitter.emit('updated', game);
+        onGameChanged();
     }
 };
 
@@ -475,21 +543,25 @@ export const onMessageFromClient = (msg: MessageFromClient) => {
                 throw new Error('You cannot bid when it is not your turn.');
             }
 
-            const cards = game.phase.cards;
+            const phase = game.phase;
+            const cards = phase.cards;
 
-            cards[game.phase.wonBid] = cards[game.phase.wonBid].filter(card =>
+            cards[phase.wonBid] = cards[phase.wonBid].filter(card =>
                 msg.nest.every(nestCard => !cardsEqual(card, nestCard))
             );
 
             game.phase = {
                 phase: 'tricks',
                 cards,
-                bid: game.phase.bid,
-                wonBid: game.phase.wonBid,
+                bid: phase.bid,
+                wonBid: phase.wonBid,
                 nest: msg.nest,
+                rook: (['north', 'south', 'east', 'west'] as const).find(seat =>
+                    phase.cards[seat].some(x => x.rook),
+                ) ?? 'nest',
                 trumps: msg.trumps,
-                leader: game.phase.wonBid,
-                turn: game.phase.wonBid,
+                leader: phase.wonBid,
+                turn: phase.wonBid,
                 previousTrick: null,
                 played: {
                     north: null,
@@ -573,5 +645,9 @@ export const onMessageFromClient = (msg: MessageFromClient) => {
         default: return assertNever(msg);
     }
 
-    emitter.emit('updated', game);
+    onGameChanged();
 };
+
+export const getGame = () => game;
+
+const onGameChanged = () => emitter.emit('updated', game);
