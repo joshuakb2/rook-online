@@ -1,8 +1,9 @@
 import { TypedEmitter } from 'tiny-typed-emitter';
 import { Card, Color, PlayerName, Seat } from '../common/parsers';
 import { assertNever, sleep } from '../common/utils';
-import { cardsEqual } from '../common/domain';
+import { AllSeated, Seats, allSeated, cardsEqual } from '../common/domain';
 import '../common/declarations';
+import { logGameEvent } from './logger';
 
 type GameEvents = {
     updated: (game: Game) => void;
@@ -12,21 +13,28 @@ class GameEmitter extends TypedEmitter<GameEvents> {}
 
 export const emitter = new GameEmitter();
 
-type Bids = Record<Seat, number | null | 'passed'>;
-type Played = Record<Seat, Card | null>;
-type AllPlayed = Record<Seat, Card>;
-type Cards = Record<Seat, Card[]>;
+export type Connected = Record<PlayerName, boolean>;
+export type Bids = Record<Seat, number | null | 'passed'>;
+export type Played = Record<Seat, Card | null>;
+export type AllPlayed = Record<Seat, Card>;
+export type Cards = Record<Seat, Card[]>;
+export type Points = Record<Seat, number>;
+export type Team = 'north_south' | 'east_west';
 
 export type Game = {
     busy: boolean;
-    connected: Record<PlayerName, boolean>;
-    seats: Record<Seat, PlayerName | null>;
+    connected: Connected;
+    seats: Seats;
     dealer: Seat;
-    north_south_score: number;
-    east_west_score: number;
-    north_south_deltas: number[];
-    east_west_deltas: number[];
     phase: GamePhase;
+} & TeamScores & TeamDeltas;
+
+type TeamScores = {
+    [TeamScore in `${Team}_score`]: number;
+};
+
+type TeamDeltas = {
+    [TeamDeltas in `${Team}_deltas`]: number[];
 };
 
 type GamePhase =
@@ -67,7 +75,7 @@ type TricksPhase = {
     turn: Seat;
     previousTrick: AllPlayed | null;
     played: Played;
-    points: Record<Seat, number>;
+    points: Points;
 };
 
 type DonePhase = {
@@ -75,7 +83,7 @@ type DonePhase = {
     bid: number;
     wonBid: Seat;
     rook: Seat | 'nest';
-    points: Record<Seat, number>;
+    points: Points;
     lastTrick: AllPlayed;
     north_south_delta: number;
     east_west_delta: number;
@@ -156,7 +164,7 @@ const seatOppositeOf = (seat: Seat): Seat => {
     }
 };
 
-const teamOf = (seat: Seat) => {
+const teamOf = (seat: Seat): Team => {
     switch (seat) {
         case 'north':
         case 'south':
@@ -201,7 +209,7 @@ const someoneBid120 = (bids: Bids): [Seat | null, number | null] => {
     return [null, null];
 };
 
-const checkBids = (phase: BidPhase) => {
+const checkBids = (phase: BidPhase, seats: AllSeated) => {
     let wonBid: Seat | null = null;
     let highestBid: number | null = null;
 
@@ -214,6 +222,11 @@ const checkBids = (phase: BidPhase) => {
     if (!wonBid) ([ wonBid, highestBid ] = someoneBid120(phase.bids));
 
     if (!wonBid || !highestBid) return;
+
+    logGameEvent({
+        event: 'wonBid',
+        player: seats[wonBid],
+    });
 
     const cards = phase.cards;
 
@@ -289,7 +302,14 @@ const handIsOver = (cardsBySeat: Cards): boolean => {
     return cardsBySeat.north.length === 0;
 };
 
-const checkTrick = (phase: TricksPhase) => {
+const gameIsOver = (teamScores: TeamScores): boolean => {
+    return teamScores.north_south_score !== teamScores.east_west_score && (
+        teamScores.north_south_score >= 300 ||
+        teamScores.east_west_score >= 300
+    );
+};
+
+const checkTrick = (phase: TricksPhase, seats: AllSeated) => {
     if (!allPlayed(phase.played)) return;
 
     const played = phase.played;
@@ -312,7 +332,8 @@ const checkTrick = (phase: TricksPhase) => {
 
         if (!winner) throw new Error('Somehow, there is no winner of the trick?');
 
-        phase.points[winner] += pointsInTrick(played);
+        const pointsWon = pointsInTrick(played);
+        phase.points[winner] += pointsWon;
         const maybeLastTrick = phase.previousTrick = played;
         phase.played = {
             north: null,
@@ -320,6 +341,13 @@ const checkTrick = (phase: TricksPhase) => {
             east: null,
             west: null,
         };
+
+        logGameEvent({
+            event: 'wonTrick',
+            player: seats[winner],
+            played,
+            pointsWon,
+        });
 
         onGameChanged();
 
@@ -371,35 +399,24 @@ const checkTrick = (phase: TricksPhase) => {
                 east_west_delta,
             };
 
-            console.log(
-                'Game complete!',
-                'Josh was playing with',
-                game.seats[seatOppositeOf(seatOf('josh'))],
-            );
-            console.log(
-                'The dealer was',
-                game.dealer,
-                'and the bid went to',
-                game.seats[game.phase.wonBid],
-                'for',
-                game.phase.bid
-            );
-            console.log(
-                'Josh\'s team scored',
-                game.phase[`${teamOf(seatOf('josh'))}_delta`],
-                'and the other team scored',
-                game.phase[`${teamOf(nextSeat(seatOf('josh')))}_delta`],
-            );
-            if (game.phase.rook === 'nest') {
-                console.log('Something unprecedented has happened. The rook was put in the nest!?!?!?');
-            }
-            else {
-                console.log(game.seats[game.phase.rook], 'had the rook.');
-            }
+            logGameEvent({
+                event: 'handFinished',
+                north_south_delta,
+                east_west_delta,
+            });
 
             onGameChanged();
 
             await sleep(5000);
+
+            if (gameIsOver(game)) {
+                logGameEvent({
+                    event: 'wonGame',
+                    team: game.north_south_score > game.east_west_score ? 'north_south' : 'east_west',
+                    north_south_score: game.north_south_score,
+                    east_west_score: game.east_west_score,
+                });
+            }
         }
     });
 };
@@ -515,10 +532,20 @@ export const onMessageFromClient = (msg: MessageFromClient) => {
             if (game.seats[game.phase.turn] !== msg.player) {
                 throw new Error('You cannot bid when it is not your turn.');
             }
+            if (!allSeated(game.seats)) {
+                throw new Error('You cannot bid until everyone is seated.');
+            }
 
             game.phase.bids[seatOf(msg.player)] = msg.amount;
             game.phase.turn = nextSeat(game.phase.turn);
-            checkBids(game.phase);
+
+            logGameEvent({
+                event: 'bid',
+                player: msg.player,
+                amount: msg.amount,
+            });
+
+            checkBids(game.phase, game.seats);
             break;
         }
 
@@ -529,9 +556,18 @@ export const onMessageFromClient = (msg: MessageFromClient) => {
             if (game.seats[game.phase.turn] !== msg.player) {
                 throw new Error('You cannot pass when it is not your turn.');
             }
+            if (!allSeated(game.seats)) {
+                throw new Error('You cannot pass until everyone is seated.');
+            }
 
             game.phase.bids[seatOf(msg.player)] = 'passed';
-            checkBids(game.phase);
+
+            logGameEvent({
+                event: 'passed',
+                player: msg.player,
+            });
+
+            checkBids(game.phase, game.seats);
             break;
         }
 
@@ -576,6 +612,13 @@ export const onMessageFromClient = (msg: MessageFromClient) => {
                     west: 0,
                 },
             };
+
+            logGameEvent({
+                event: 'choseNest',
+                cards: game.phase.cards,
+                nest: game.phase.nest,
+            });
+
             break;
         }
 
@@ -586,6 +629,9 @@ export const onMessageFromClient = (msg: MessageFromClient) => {
             if (game.seats[game.phase.turn] !== msg.player) {
                 throw new Error('You cannot play a card when it is not your turn!');
             }
+            if (!allSeated(game.seats)) {
+                throw new Error('You cannot play when not everyone is seated!');
+            }
 
             const seat = seatOf(msg.player);
 
@@ -594,11 +640,22 @@ export const onMessageFromClient = (msg: MessageFromClient) => {
             game.phase.cards[seat] = game.phase.cards[seat].filter(card =>
                 !cardsEqual(card, msg.card)
             );
-            checkTrick(game.phase);
+
+            logGameEvent({
+                event: 'played',
+                player: msg.player,
+                card: msg.card,
+            });
+
+            checkTrick(game.phase, game.seats);
             break;
         }
 
         case 'start_new_hand': {
+            if (!allSeated(game.seats)) {
+                throw new Error('You cannot start a new hand when not everyone is seated!');
+            }
+
             game.dealer = nextSeat(game.dealer);
 
             const { cards, nest } = deal();
@@ -615,10 +672,23 @@ export const onMessageFromClient = (msg: MessageFromClient) => {
                 nest,
                 turn: nextSeat(game.dealer),
             };
+
+            logGameEvent({
+                event: 'dealt',
+                seats: game.seats,
+                dealer: game.seats[game.dealer],
+                cards,
+                nest,
+            });
+
             break;
         }
 
         case 'start_new_game': {
+            if (!allSeated(game.seats)) {
+                throw new Error('You cannot start a new game when not everyone is seated!');
+            }
+
             game.dealer = nextSeat(game.dealer);
             game.north_south_deltas = [];
             game.east_west_deltas = [];
@@ -639,6 +709,16 @@ export const onMessageFromClient = (msg: MessageFromClient) => {
                 nest,
                 turn: nextSeat(game.dealer),
             };
+
+            logGameEvent({ event: 'newGame' });
+            logGameEvent({
+                event: 'dealt',
+                seats: game.seats,
+                dealer: game.seats[game.dealer],
+                cards,
+                nest,
+            });
+
             break;
         }
 

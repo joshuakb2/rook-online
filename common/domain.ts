@@ -1,6 +1,9 @@
 import { Card, PlayerName, Seat } from './parsers';
 
-export const allSeated = (seats: Record<Seat, PlayerName | undefined>) =>
+export type Seats = Record<Seat, PlayerName | null>;
+export type AllSeated = Record<Seat, PlayerName>;
+
+export const allSeated = (seats: Seats): seats is AllSeated =>
     Boolean(
         seats.north &&
         seats.south &&
