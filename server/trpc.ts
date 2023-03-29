@@ -7,7 +7,10 @@ import { Game, onMessageFromClient, emitter as gameEmitter, getGame } from './ga
 import { observable } from '@trpc/server/observable';
 
 const createContext = async (opts: CreateWSSContextFnOptions) => {
-    const ws: ws.WebSocket & { player?: PlayerName } = opts.res;
+    const ws: ws.WebSocket & {
+        player?: PlayerName;
+        onSetPlayer?: () => void;
+    } = opts.res;
 
     ws.once('close', () => {
         if (ws.player) {
@@ -30,6 +33,7 @@ const appRouter = router({
         .input(playerNameParser)
         .mutation(req => {
             req.ctx.player = req.input;
+            req.ctx.onSetPlayer?.();
             onMessageFromClient({
                 type: 'connect',
                 player: req.input,
@@ -109,14 +113,20 @@ const appRouter = router({
 
     gameUpdate: t.procedure
         .input(z.undefined())
-        .subscription(req => {
-            return observable<Game>(emit => {
-                gameEmitter.on('updated', emit.next);
-                emit.next(getGame());
-                req.ctx.on('close', () => gameEmitter.off('updated', emit.next));
-                return () => gameEmitter.off('updated', emit.next);
-            });
-        }),
+        .subscription(req => observable<Game>(emit => {
+            gameEmitter.on('updated', emit.next);
+            emit.next(getGame());
+            req.ctx.on('close', () => gameEmitter.off('updated', emit.next));
+            return () => gameEmitter.off('updated', emit.next);
+        })),
+
+    recognizeIdentity: t.procedure
+        .input(z.undefined())
+        .subscription(req => observable<PlayerName | null>(emit => {
+            req.ctx.onSetPlayer = () => emit.next(req.ctx.player ?? null);
+            req.ctx.onSetPlayer();
+            return () => delete req.ctx.onSetPlayer;
+        })),
 });
 
 export type AppRouter = typeof appRouter;

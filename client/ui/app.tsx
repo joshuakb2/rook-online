@@ -1,4 +1,4 @@
-import React, { CSSProperties, useState } from 'react';
+import React, { CSSProperties } from 'react';
 import type { Game } from '../../server/game';
 import { PlayerName, Seat } from '../../common/parsers';
 import { trpc } from '../trpc';
@@ -7,7 +7,6 @@ import { CardSvg } from './card';
 export type AppProps = {
     game: Game | null;
     player: PlayerName | null;
-    setPlayer: (player: PlayerName) => void;
 };
 
 export const App = (props: AppProps) => {
@@ -37,10 +36,9 @@ const NoGame = () => <div
 type GameUIProps = {
     game: Game;
     player: PlayerName | null;
-    setPlayer: (player: PlayerName) => void;
 }
 
-const GameUI = ({ game, player, setPlayer }: GameUIProps) => {
+const GameUI = ({ game, player }: GameUIProps) => {
     return <div style={{
         width: '100vmin',
         height: '100vmin',
@@ -49,7 +47,7 @@ const GameUI = ({ game, player, setPlayer }: GameUIProps) => {
     }}>
         {player
             ? <ChosePlayer {...{ player, game }}/>
-            : <ChoosePlayer {...{ setPlayer, game }}/>
+            : <ChoosePlayer {...{ game }}/>
         }
         <UnseatedPlayers game={game}/>
     </div>;
@@ -71,11 +69,10 @@ const UnseatedPlayers = ({ game }: { game: Game }) => <div
 </div>;
 
 type ChoosePlayerProps = {
-    setPlayer: (player: PlayerName) => void;
     game: Game;
 };
 
-const ChoosePlayer = ({ setPlayer, game }: ChoosePlayerProps) => {
+const ChoosePlayer = ({ game }: ChoosePlayerProps) => {
     return <div style={{
         display: 'grid',
         gridTemplateRows: '1fr min-content 1fr',
@@ -102,7 +99,7 @@ const ChoosePlayer = ({ setPlayer, game }: ChoosePlayerProps) => {
                     type='button'
                     key={player}
                     disabled={game.connected[player]}
-                    onClick={() => setPlayer(player)}
+                    onClick={() => trpc.announce.mutate(player)}
                 >
                     {player.replace(/^./, c => c.toUpperCase())}
                 </button>
