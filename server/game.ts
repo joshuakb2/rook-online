@@ -617,6 +617,7 @@ export const onMessageFromClient = (msg: MessageFromClient) => {
                 event: 'choseNest',
                 cards: game.phase.cards,
                 nest: game.phase.nest,
+                trumps: game.phase.trumps,
             });
 
             break;

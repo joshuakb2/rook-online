@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import type { AllPlayed, Cards, Team } from './game';
-import type { Card, PlayerName } from '../common/parsers';
+import type { Card, Color, PlayerName } from '../common/parsers';
 import { AllSeated } from '../common/domain';
 
 const fileStream = fs.createWriteStream('game.log', {
@@ -30,6 +30,7 @@ export type GameEvent = {
     event: 'choseNest';
     cards: Cards;
     nest: Card[];
+    trumps: Color;
 } | {
     event: 'played';
     player: PlayerName;
