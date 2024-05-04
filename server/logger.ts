@@ -51,4 +51,7 @@ export type GameEvent = {
     east_west_score: number;
 };
 
-export const logGameEvent = (args: GameEvent) => fileStream.write(JSON.stringify(args) + '\n');
+export const logGameEvent = (event: GameEvent) => fileStream.write(JSON.stringify({
+    ts: Date.now(),
+    ...event,
+}) + '\n');

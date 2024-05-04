@@ -1,8 +1,9 @@
 import React, { CSSProperties } from 'react';
 import type { Game } from '../../server/game';
-import { PlayerName, Seat } from '../../common/parsers';
+import { Card, PlayerName, Seat } from '../../common/parsers';
 import { trpc } from '../trpc';
 import { CardSvg } from './card';
+import { assertNever } from '../../common/utils';
 
 export type AppProps = {
     game: Game | null;
@@ -46,7 +47,7 @@ const GameUI = ({ game, player }: GameUIProps) => {
         position: 'relative',
     }}>
         {player
-            ? <ChosePlayer {...{ player, game }}/>
+            ? <Table {...{ player, game }}/>
             : <ChoosePlayer {...{ game }}/>
         }
         <UnseatedPlayers game={game}/>
@@ -64,7 +65,7 @@ const UnseatedPlayers = ({ game }: { game: Game }) => <div
     {(['josh', 'maia', 'deborah', 'bill'] as const).filter(
         player => game.connected[player] && !seatOf(player, game)
     ).map(
-        player => <p>{player} is connected but not seated.</p>
+        player => <p key={player}>{player} is connected but not seated.</p>
     )}
 </div>;
 
@@ -121,19 +122,14 @@ type ChosePlayerProps = {
     game: Game;
 };
 
-const ChosePlayer = ({ player, game }: ChosePlayerProps) => {
-    const seat = seatOf(player, game);
+const Table = ({ player, game }: ChosePlayerProps) => {
+    const mySeat = seatOf(player, game);
 
-    if (!seat) return <ChooseSeat {...{ player, game }}/>;
-    return <Seated {...{ player, seat, game }}/>;
-};
-
-const ChooseSeat = ({ player, game }: ChosePlayerProps) => {
     return <>
         {(['north', 'south', 'east', 'west'] as const).map(seat => <React.Fragment key={seat}>
-            <CardSvg card={{ rook: true }} style={getStyleForPlayedCardOnSide(sideOf(seat, null))}/>
-            <div style={getStyleForSeatNameOnSide(sideOf(seat, null))}>
-                {game.seats[seat]
+            <PlayedCard {...{ seat, mySeat, game }} />
+            <div style={getStyleForSeatNameOnSide(sideOf(seat, mySeat))}>
+                {game.seats[seat] != null
                     ? <div>
                         {seat}<br/>
                         {game.seats[seat]}
@@ -180,6 +176,38 @@ const atLooping = <T,>(arr: T[], i: number): T => {
     return arr[i];
 };
 
+type PlayedCardProps = {
+    seat: Seat;
+    mySeat: Seat | null;
+    game: Game;
+};
+
+const PlayedCard = ({ seat, mySeat, game }: PlayedCardProps) => {
+    if (!mySeat) return null;
+
+    let card: Card | null = null;
+
+    switch (game.phase.phase) {
+        case 'pre-deal':
+        case 'bid':
+        case 'nest':
+        case 'done':
+            break;
+        case 'tricks':
+            card = game.phase.played[seat];
+            break;
+        default:
+            return assertNever(game.phase);
+    }
+
+    if (!card) return null;
+
+    return <CardSvg
+        card={card}
+        style={getStyleForPlayedCardOnSide(sideOf(seat, mySeat))}
+    />;
+};
+
 const getStyleForPlayedCardOnSide = (side: Side): CSSProperties => ({
     position: 'absolute',
     transform: 'translate(-50%, -50%)',
@@ -191,7 +219,7 @@ const getStyleForPlayedCardOnSide = (side: Side): CSSProperties => ({
         side === 'left' ? '35%' :
         side === 'right' ? '65%' :
         '50%',
-    height: '20%',
+    height: '10%',
 });
 
 const getStyleForSeatNameOnSide = (side: Side): CSSProperties => ({
@@ -211,13 +239,3 @@ const getStyleForSeatNameOnSide = (side: Side): CSSProperties => ({
     right: side === 'left' ? 'unset' : 0,
     fontSize: '5vmin',
 });
-
-type SeatedProps = {
-    game: Game;
-    seat: Seat;
-    player: PlayerName;
-};
-
-const Seated = ({ game, seat, player }: SeatedProps) => {
-    return <>Not implemented</>;
-};

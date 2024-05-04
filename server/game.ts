@@ -177,6 +177,12 @@ const teamOf = (seat: Seat): Team => {
     }
 };
 
+const anyoneHasNotHadAChanceToBid = (bids: Bids): boolean =>
+    bids.north === null ||
+    bids.south === null ||
+    bids.east === null ||
+    bids.west === null;
+
 const everyonePassed = (bids: Bids, dealer: Seat): boolean => {
     for (const [seat, bid] of Object.entries(bids)) {
         if (seat === dealer) continue;
@@ -186,56 +192,73 @@ const everyonePassed = (bids: Bids, dealer: Seat): boolean => {
     return true;
 };
 
-const onlyOneBid = (bids: Bids): [Seat | null, number | null] => {
-    let wonBid: Seat | null = null;
-    let highestBid: number | null = null;
+const onlyOneBid = (bids: Bids): WonBid | null => {
+    let wonBid: WonBid | null = null;
 
     for (const [seat, bid] of Object.entries(bids)) {
-        if (bid === null) return [null, null];
+        if (bid === null) return null;
         if (bid === 'passed') continue;
-        if (wonBid) return [null, null];
-        wonBid = seat;
-        highestBid = bid;
+        if (wonBid) return null;
+        wonBid = {
+            who: seat,
+            highestBid: bid,
+        };
     }
 
-    return [wonBid, highestBid];
+    return wonBid;
 };
 
-const someoneBid120 = (bids: Bids): [Seat | null, number | null] => {
+const someoneBid120 = (bids: Bids): WonBid | null => {
     for (const [seat, bid] of Object.entries(bids)) {
-        if (bid === 120) return [seat, bid];
+        if (bid === 120) return { who: seat, highestBid: 120 };
     }
 
-    return [null, null];
+    return null;
+};
+
+type WonBid = {
+    who: Seat;
+    highestBid: number;
 };
 
 const checkBids = (phase: BidPhase, seats: AllSeated) => {
-    let wonBid: Seat | null = null;
-    let highestBid: number | null = null;
-
-    if (everyonePassed(phase.bids, game.dealer)) {
-        wonBid = game.dealer;
-        highestBid = 70;
+    if (anyoneHasNotHadAChanceToBid(phase.bids)) {
+        phase.turn = nextSeat(phase.turn);
+        return;
     }
 
-    if (!wonBid) ([ wonBid, highestBid ] = onlyOneBid(phase.bids));
-    if (!wonBid) ([ wonBid, highestBid ] = someoneBid120(phase.bids));
+    let wonBid: WonBid | null = null;
 
-    if (!wonBid || !highestBid) return;
+    if (everyonePassed(phase.bids, game.dealer)) {
+        wonBid = {
+            who: game.dealer,
+            highestBid: 70,
+        };
+    }
+
+    if (!wonBid) (wonBid = onlyOneBid(phase.bids));
+    if (!wonBid) (wonBid = someoneBid120(phase.bids));
+
+    // If bidding continues
+    if (!wonBid) {
+        // Advance turn until we find someone who didn't pass
+        while (phase.bids[phase.turn = nextSeat(phase.turn)] === 'passed') continue;
+        return;
+    };
 
     logGameEvent({
         event: 'wonBid',
-        player: seats[wonBid],
+        player: seats[wonBid.who],
     });
 
     const cards = phase.cards;
 
-    cards[wonBid].push(...phase.nest);
+    cards[wonBid.who].push(...phase.nest);
 
     game.phase = {
         phase: 'nest',
-        wonBid,
-        bid: highestBid,
+        wonBid: wonBid.who,
+        bid: wonBid.highestBid,
         cards,
     };
 };
@@ -537,7 +560,6 @@ export const onMessageFromClient = (msg: MessageFromClient) => {
             }
 
             game.phase.bids[seatOf(msg.player)] = msg.amount;
-            game.phase.turn = nextSeat(game.phase.turn);
 
             logGameEvent({
                 event: 'bid',
