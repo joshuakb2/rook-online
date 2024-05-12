@@ -4,7 +4,7 @@ export const playerNameParser = z.union([
     z.literal('bill'),
     z.literal('deborah'),
     z.literal('josh'),
-    z.literal('maia'),
+    z.literal('chris'),
 ]);
 
 export type PlayerName = z.infer<typeof playerNameParser>;

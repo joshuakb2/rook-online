@@ -95,7 +95,7 @@ const game: Game = {
         bill: false,
         deborah: false,
         josh: false,
-        maia: false,
+        chris: false,
     },
     seats: {
         north: null,

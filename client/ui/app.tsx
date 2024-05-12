@@ -62,7 +62,7 @@ const UnseatedPlayers = ({ game }: { game: Game }) => <div
         paddingLeft: '5px',
     }}
 >
-    {(['josh', 'maia', 'deborah', 'bill'] as const).filter(
+    {(['josh', 'chris', 'deborah', 'bill'] as const).filter(
         player => game.connected[player] && !seatOf(player, game)
     ).map(
         player => <p key={player}>{player} is connected but not seated.</p>
@@ -95,7 +95,7 @@ const ChoosePlayer = ({ game }: ChoosePlayerProps) => {
             marginLeft: 'auto',
             marginRight: 'auto',
         }}>
-            {(['josh', 'maia', 'deborah', 'bill'] as const).map(player =>
+            {(['josh', 'chris', 'deborah', 'bill'] as const).map(player =>
                 <button
                     type='button'
                     key={player}
